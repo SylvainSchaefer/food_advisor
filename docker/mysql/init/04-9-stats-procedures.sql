@@ -244,56 +244,85 @@ BEGIN
     CASE p_period
         WHEN 'day' THEN
             SELECT
-                DATE(completion_date) as period,
-                COUNT(*) as completion_count,
-                COALESCE(AVG(rating), 0) as average_rating
-            FROM completed_recipes
-            GROUP BY DATE(completion_date)
-            ORDER BY period DESC
+                CAST(period_date AS CHAR) as period,
+                completion_count,
+                average_rating
+            FROM (
+                SELECT
+                    DATE(completion_date) as period_date,
+                    COUNT(*) as completion_count,
+                    COALESCE(AVG(rating), 0) as average_rating
+                FROM completed_recipes
+                GROUP BY DATE(completion_date)
+            ) AS daily_stats
+            ORDER BY period_date DESC
             LIMIT 30;
-
+            
         WHEN 'week' THEN
             SELECT
-                YEARWEEK(completion_date) as period,
-                COUNT(*) as completion_count,
-                COALESCE(AVG(rating), 0) as average_rating
-            FROM completed_recipes
-            GROUP BY YEARWEEK(completion_date)
-            ORDER BY period DESC
+                CAST(period_week AS CHAR) as period,
+                completion_count,
+                average_rating
+            FROM (
+                SELECT
+                    YEARWEEK(completion_date, 1) as period_week,
+                    COUNT(*) as completion_count,
+                    COALESCE(AVG(rating), 0) as average_rating
+                FROM completed_recipes
+                GROUP BY YEARWEEK(completion_date, 1)
+            ) AS weekly_stats
+            ORDER BY period_week DESC
             LIMIT 12;
-
+            
         WHEN 'month' THEN
             SELECT
-                DATE_FORMAT(completion_date, '%Y-%m') as period,
-                COUNT(*) as completion_count,
-                COALESCE(AVG(rating), 0) as average_rating
-            FROM completed_recipes
-            GROUP BY DATE_FORMAT(completion_date, '%Y-%m')
-            ORDER BY period DESC
+                period_month as period,
+                completion_count,
+                average_rating
+            FROM (
+                SELECT
+                    DATE_FORMAT(completion_date, '%Y-%m') as period_month,
+                    COUNT(*) as completion_count,
+                    COALESCE(AVG(rating), 0) as average_rating
+                FROM completed_recipes
+                GROUP BY DATE_FORMAT(completion_date, '%Y-%m')
+            ) AS monthly_stats
+            ORDER BY period_month DESC
             LIMIT 12;
-
+            
         WHEN 'year' THEN
             SELECT
-                YEAR(completion_date) as period,
-                COUNT(*) as completion_count,
-                COALESCE(AVG(rating), 0) as average_rating
-            FROM completed_recipes
-            GROUP BY YEAR(completion_date)
-            ORDER BY period DESC;
-
+                CAST(period_year AS CHAR) as period,
+                completion_count,
+                average_rating
+            FROM (
+                SELECT
+                    YEAR(completion_date) as period_year,
+                    COUNT(*) as completion_count,
+                    COALESCE(AVG(rating), 0) as average_rating
+                FROM completed_recipes
+                GROUP BY YEAR(completion_date)
+            ) AS yearly_stats
+            ORDER BY period_year DESC;
+            
         ELSE
             -- Par défaut, grouper par jour
             SELECT
-                DATE(completion_date) as period,
-                COUNT(*) as completion_count,
-                COALESCE(AVG(rating), 0) as average_rating
-            FROM completed_recipes
-            GROUP BY DATE(completion_date)
-            ORDER BY period DESC
+                CAST(period_date AS CHAR) as period,
+                completion_count,
+                average_rating
+            FROM (
+                SELECT
+                    DATE(completion_date) as period_date,
+                    COUNT(*) as completion_count,
+                    COALESCE(AVG(rating), 0) as average_rating
+                FROM completed_recipes
+                GROUP BY DATE(completion_date)
+            ) AS default_stats
+            ORDER BY period_date DESC
             LIMIT 30;
     END CASE;
 END$$
-
 
 -- Statistiques des allergies des utilisateurs
 DROP PROCEDURE IF EXISTS sp_get_allergy_stats$$

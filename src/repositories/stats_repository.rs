@@ -117,7 +117,7 @@ impl StatsRepository {
         let stats = results
             .iter()
             .map(|row| CompletionStatsByPeriod {
-                period: row.get::<NaiveDate, _>(0).to_string(), // Convertir en String si nécessaire
+                period: row.get::<String, _>(0),
                 completion_count: row.get(1),
                 average_rating: row.get(2),
             })
