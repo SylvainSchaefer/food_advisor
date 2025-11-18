@@ -112,9 +112,15 @@ async fn main() -> std::io::Result<()> {
                     )
                     .service(
                         web::scope("/users")
-                            .wrap(AdminOnly)
                             .wrap(auth.clone())
-                            .route("/all", web::get().to(handlers::get_all_users)),
+                            // Route pour l'utilisateur connecté
+                            .route("/me", web::get().to(handlers::get_current_user))
+                            // Routes admin
+                            .service(
+                                web::scope("")
+                                    .wrap(AdminOnly)
+                                    .route("/all", web::get().to(handlers::get_all_users)),
+                            ),
                     )
                     .service(
                         web::scope("/admin")
@@ -230,6 +236,79 @@ async fn main() -> std::io::Result<()> {
                                         "/{category_id}/ingredients/{ingredient_id}",
                                         web::delete().to(handlers::remove_ingredient_from_category),
                                     ),
+                            ),
+                    )
+                    .service(
+                        web::scope("/allergies")
+                            .wrap(auth.clone())
+                            // Routes accessibles à tous les utilisateurs authentifiés
+                            .route("", web::get().to(handlers::get_all_allergies))
+                            .route("/{id}", web::get().to(handlers::get_allergy))
+                            // Routes réservées aux administrateurs
+                            .service(
+                                web::scope("")
+                                    .wrap(AdminOnly)
+                                    .route("", web::post().to(handlers::create_allergy))
+                                    .route("/{id}", web::put().to(handlers::update_allergy))
+                                    .route("/{id}", web::delete().to(handlers::delete_allergy))
+                                    .route(
+                                        "/{id}/ingredients",
+                                        web::post().to(handlers::add_ingredient_to_allergy),
+                                    )
+                                    .route(
+                                        "/{allergy_id}/ingredients/{ingredient_id}",
+                                        web::delete().to(handlers::remove_ingredient_from_allergy),
+                                    ),
+                            ),
+                    )
+                    .service(
+                        web::scope("/my-allergies")
+                            .wrap(auth.clone())
+                            .route("", web::get().to(handlers::get_user_allergies))
+                            .route("/{id}", web::put().to(handlers::add_user_allergy))
+                            .route("/{id}", web::delete().to(handlers::remove_user_allergy)),
+                    )
+                    .service(
+                        web::scope("/recommendations")
+                            .wrap(auth.clone())
+                            .route("", web::get().to(handlers::get_recommendations)),
+                    )
+                    .service(
+                        web::scope("/stats")
+                            .wrap(AdminOnly)
+                            .wrap(auth.clone())
+                            // Statistiques globales
+                            .route("/global", web::get().to(handlers::get_global_stats))
+                            // Top recettes
+                            .route(
+                                "/recipes/top-completed",
+                                web::get().to(handlers::get_top_completed_recipes),
+                            )
+                            .route(
+                                "/recipes/top-rated",
+                                web::get().to(handlers::get_top_rated_recipes),
+                            )
+                            // Top ingrédients
+                            .route(
+                                "/ingredients/top",
+                                web::get().to(handlers::get_top_ingredients),
+                            )
+                            // Statistiques par période
+                            .route(
+                                "/completions/by-period",
+                                web::get().to(handlers::get_completion_stats_by_period),
+                            )
+                            // Statistiques des allergies
+                            .route("/allergies", web::get().to(handlers::get_allergy_stats))
+                            // Statistiques des utilisateurs actifs
+                            .route(
+                                "/users/active",
+                                web::get().to(handlers::get_active_users_stats),
+                            )
+                            // Statistiques des catégories
+                            .route(
+                                "/categories/usage",
+                                web::get().to(handlers::get_category_usage_stats),
                             ),
                     ),
             )

@@ -1,0 +1,20 @@
+# Dockerfile pour le front-end React en développement
+FROM node:18-alpine
+
+# Créer le répertoire de l'application
+WORKDIR /app
+
+# Copier les fichiers de dépendances
+COPY recipe_recommender_front/package*.json ./
+
+# Installer les dépendances
+RUN npm install
+
+# Copier le reste du code
+COPY recipe_recommender_front/ ./
+
+# Exposer le port du serveur de développement React
+EXPOSE 3000
+
+# Démarrer le serveur de développement
+CMD ["npm", "start"]

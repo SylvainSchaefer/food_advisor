@@ -1,7 +1,7 @@
 use crate::models::{
     AddRecipeIngredientRequest, AddRecipeStepRequest, CompleteRecipeRequest, CreateRecipeRequest,
-    PaginatedResponse, PaginationInfo, PaginationParams, TokenClaims, UpdateRecipeRequest,
-    UpdateRecipeStepRequest,
+    PaginatedResponse, PaginationInfo, PaginationParams, RecipeRecommendationParams, TokenClaims,
+    UpdateRecipeRequest, UpdateRecipeStepRequest,
 };
 use crate::repositories::RecipeRepository;
 use crate::utils::auth::extract_user_info;
@@ -554,6 +554,64 @@ pub async fn delete_recipe_step(
                     "error": "Failed to delete recipe step"
                 }))
             }
+        }
+    }
+}
+
+/// Obtenir des recommandations de recettes personnalisées
+pub async fn get_recommendations(
+    pool: web::Data<MySqlPool>,
+    query: web::Query<RecipeRecommendationParams>,
+    claims: web::ReqData<TokenClaims>,
+) -> HttpResponse {
+    let repo = RecipeRepository::new(pool.get_ref().clone());
+    let params = query.into_inner();
+
+    let user_id = match extract_user_info(&claims) {
+        Ok(id) => id.0,
+        Err(response) => return response,
+    };
+
+    // Valider le sort_by
+    let valid_sorts = vec!["rating", "cost", "difficulty", "recent"];
+    let sort_by = if valid_sorts.contains(&params.sort_by.as_str()) {
+        params.sort_by.as_str()
+    } else {
+        "rating"
+    };
+
+    match repo
+        .get_recommendations(
+            user_id,
+            params.only_in_stock,
+            sort_by,
+            params.page,
+            params.page_size,
+        )
+        .await
+    {
+        Ok((recipes, total_count)) => {
+            let total_pages = ((total_count as f64) / (params.page_size as f64)).ceil() as i32;
+
+            let response = PaginatedResponse {
+                data: recipes,
+                pagination: PaginationInfo {
+                    current_page: params.page,
+                    page_size: params.page_size,
+                    total_count,
+                    total_pages,
+                    has_next: params.page < total_pages,
+                    has_previous: params.page > 1,
+                },
+            };
+
+            HttpResponse::Ok().json(response)
+        }
+        Err(e) => {
+            log::error!("Failed to get recommendations: {:?}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": "Failed to get recommendations"
+            }))
         }
     }
 }

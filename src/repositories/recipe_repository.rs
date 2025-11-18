@@ -1,4 +1,6 @@
-use crate::models::{Recipe, RecipeIngredientDetail, RecipeStep, RecipeWithIngredients};
+use crate::models::{
+    Recipe, RecipeIngredientDetail, RecipeStep, RecipeWithIngredients, RecommendedRecipe,
+};
 use chrono::{NaiveDateTime, Utc};
 use rust_decimal::Decimal;
 use sqlx::{Error, MySqlPool, Row, mysql::MySqlRow};
@@ -35,7 +37,7 @@ impl RecipeRepository {
         RecipeIngredientDetail {
             recipe_id: row.get(0),
             ingredient_id: row.get(1),
-            ingredient_name: row.get(2),
+            name: row.get(2),
             quantity: row.get(3),
             measurement_unit: row.get(4),
             is_optional: row.get(5),
@@ -46,6 +48,29 @@ impl RecipeRepository {
             calories: row.get(10),
             price: row.get(11),
             weight: row.get(12),
+        }
+    }
+
+    fn get_recommended_recipe(row: &MySqlRow) -> RecommendedRecipe {
+        let created_at: chrono::DateTime<Utc> = row.get(7);
+        let updated_at: chrono::DateTime<Utc> = row.get(8);
+
+        RecommendedRecipe {
+            recipe_id: row.get(0),
+            title: row.get(1),
+            description: row.get(2),
+            servings: row.get(3),
+            difficulty: row.get(4),
+            author_user_id: row.get(5),
+            is_published: row.get(6),
+            created_at: created_at.naive_utc(),
+            updated_at: updated_at.naive_utc(),
+            author_first_name: row.try_get(9).ok(),
+            author_last_name: row.try_get(10).ok(),
+            avg_rating: row.get(11),
+            total_cost: row.get(12),
+            is_in_stock: row.get(13),
+            missing_ingredients_count: row.get(14),
         }
     }
 
@@ -445,5 +470,38 @@ impl RecipeRepository {
             None => Ok(()),
             Some(error_msg) => Err(Error::Protocol(error_msg)),
         }
+    }
+
+    pub async fn get_recommendations(
+        &self,
+        user_id: u32,
+        only_in_stock: bool,
+        sort_by: &str,
+        page: i32,
+        page_size: i32,
+    ) -> Result<(Vec<RecommendedRecipe>, i64), Error> {
+        let results =
+            sqlx::query("CALL sp_get_recipe_recommendations(?, ?, ?, ?, ?, @p_error_message)")
+                .bind(user_id)
+                .bind(only_in_stock)
+                .bind(sort_by)
+                .bind(page)
+                .bind(page_size)
+                .fetch_all(&self.pool)
+                .await?;
+
+        let total_count: i64 = if !results.is_empty() {
+            results[0].get(0)
+        } else {
+            0
+        };
+
+        let recipes: Vec<RecommendedRecipe> = results
+            .iter()
+            .skip(1)
+            .map(|row| Self::get_recommended_recipe(row))
+            .collect();
+
+        Ok((recipes, total_count))
     }
 }

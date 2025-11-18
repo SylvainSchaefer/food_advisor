@@ -299,7 +299,7 @@ BEGIN
     FROM recipes r
     LEFT JOIN users u ON r.author_user_id = u.user_id
     WHERE r.is_published = TRUE
-    ORDER BY r.created_at DESC
+    ORDER BY r.created_at DESC, r.recipe_id DESC
     LIMIT p_page_size OFFSET v_offset;
 END$$
 
@@ -765,7 +765,7 @@ BEGIN
         r.updated_at
     FROM recipes r
     WHERE r.author_user_id = p_user_id
-    ORDER BY r.created_at DESC
+    ORDER BY r.created_at DESC, r.recipe_id DESC
     LIMIT p_page_size OFFSET v_offset;
 END$$
 
@@ -1206,6 +1206,191 @@ BEGIN
         
         COMMIT;
     END IF;
+END$$
+
+
+
+
+-- Obtenir des recommandations de recettes personnalisées
+DROP PROCEDURE IF EXISTS sp_get_recipe_recommendations$$
+CREATE PROCEDURE sp_get_recipe_recommendations(
+    IN p_user_id INT,
+    IN p_only_in_stock BOOLEAN,
+    IN p_sort_by VARCHAR(20), -- 'rating', 'cost', 'difficulty', 'recent'
+    IN p_page INT,
+    IN p_page_size INT,
+    OUT p_error_message VARCHAR(500)
+)
+BEGIN
+    DECLARE v_sql_error TEXT;
+    DECLARE v_sql_state CHAR(5) DEFAULT '00000';
+    DECLARE v_mysql_errno INT DEFAULT 0;
+    DECLARE v_offset INT;
+    
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        GET DIAGNOSTICS CONDITION 1
+            v_sql_state = RETURNED_SQLSTATE,
+            v_mysql_errno = MYSQL_ERRNO,
+            v_sql_error = MESSAGE_TEXT;
+        
+        SET p_error_message = COALESCE(v_sql_error, 'Unknown SQL error occurred');
+        
+        CALL sp_log_error(
+            'SQL_EXCEPTION',
+            p_error_message,
+            JSON_OBJECT(
+                'sql_state', v_sql_state,
+                'mysql_errno', v_mysql_errno,
+                'user_id', p_user_id,
+                'operation', 'GET_RECIPE_RECOMMENDATIONS'
+            ),
+            'sp_get_recipe_recommendations',
+            p_user_id
+        );
+        
+        RESIGNAL;
+    END;
+    
+    SET p_error_message = NULL;
+    SET v_offset = (p_page - 1) * p_page_size;
+    
+    -- Créer une table temporaire pour stocker les recettes recommandées
+    DROP TEMPORARY TABLE IF EXISTS temp_recommended_recipes;
+    CREATE TEMPORARY TABLE temp_recommended_recipes (
+        recipe_id INT,
+        title VARCHAR(255),
+        description TEXT,
+        servings INT,
+        difficulty VARCHAR(20),
+        author_user_id INT,
+        is_published BOOLEAN,
+        created_at TIMESTAMP,
+        updated_at TIMESTAMP,
+        author_first_name VARCHAR(100),
+        author_last_name VARCHAR(100),
+        avg_rating DECIMAL(3,2),
+        total_cost DECIMAL(10,2),
+        is_in_stock BOOLEAN,
+        missing_ingredients_count INT
+    );
+    
+    -- Insérer les recettes filtrées
+    INSERT INTO temp_recommended_recipes
+    SELECT DISTINCT
+        r.recipe_id,
+        r.title,
+        r.description,
+        r.servings,
+        r.difficulty,
+        r.author_user_id,
+        r.is_published,
+        r.created_at,
+        r.updated_at,
+        u.first_name as author_first_name,
+        u.last_name as author_last_name,
+        -- Calculer la note moyenne
+        COALESCE(AVG(cr.rating), 0) as avg_rating,
+        -- Calculer le coût total de la recette
+        COALESCE(SUM(i.price* (ri.quantity / 100)), 0) as total_cost,
+        -- Vérifier si tous les ingrédients sont en stock
+        (
+            SELECT COUNT(*) = 0
+            FROM recipe_ingredients ri2
+            LEFT JOIN user_ingredient_stock uis ON uis.ingredient_id = ri2.ingredient_id 
+                AND uis.user_id = p_user_id
+            WHERE ri2.recipe_id = r.recipe_id
+            AND (uis.ingredient_id IS NULL OR uis.quantity < ri2.quantity)
+        ) as is_in_stock,
+        -- Compter le nombre d'ingrédients manquants
+        (
+            SELECT COUNT(*)
+            FROM recipe_ingredients ri2
+            LEFT JOIN user_ingredient_stock uis ON uis.ingredient_id = ri2.ingredient_id 
+                AND uis.user_id = p_user_id
+            WHERE ri2.recipe_id = r.recipe_id
+            AND (uis.ingredient_id IS NULL OR uis.quantity < ri2.quantity)
+        ) as missing_ingredients_count
+    FROM recipes r
+    LEFT JOIN users u ON r.author_user_id = u.user_id
+    LEFT JOIN recipe_ingredients ri ON r.recipe_id = ri.recipe_id
+    LEFT JOIN ingredients i ON ri.ingredient_id = i.ingredient_id
+    LEFT JOIN completed_recipes cr ON r.recipe_id = cr.recipe_id
+    WHERE r.is_published = TRUE
+    -- Exclure les recettes contenant des ingrédients exclus par l'utilisateur
+    AND NOT EXISTS (
+        SELECT 1 
+        FROM recipe_ingredients ri_excluded
+        INNER JOIN user_ingredient_preferences uip ON ri_excluded.ingredient_id = uip.ingredient_id
+        WHERE ri_excluded.recipe_id = r.recipe_id
+        AND uip.user_id = p_user_id
+        AND uip.preference_type = 'excluded'
+    )
+    -- Exclure les recettes contenant des catégories exclues
+    AND NOT EXISTS (
+        SELECT 1
+        FROM recipe_ingredients ri_cat
+        INNER JOIN ingredient_category_assignments ica ON ri_cat.ingredient_id = ica.ingredient_id
+        INNER JOIN user_ingredient_category_preferences ucp ON ica.category_id = ucp.category_id
+        WHERE ri_cat.recipe_id = r.recipe_id
+        AND ucp.user_id = p_user_id
+        AND ucp.preference_type = 'excluded'
+    )
+    -- Exclure les recettes contenant des allergènes de l'utilisateur
+    AND NOT EXISTS (
+        SELECT 1
+        FROM recipe_ingredients ri_allergy
+        INNER JOIN ingredient_allergies ia ON ri_allergy.ingredient_id = ia.ingredient_id
+        INNER JOIN user_allergies ua ON ia.allergy_id = ua.allergy_id
+        WHERE ri_allergy.recipe_id = r.recipe_id
+        AND ua.user_id = p_user_id
+    )
+    GROUP BY r.recipe_id, r.title, r.description, r.servings, r.difficulty, 
+             r.author_user_id, r.is_published, r.created_at, 
+             r.updated_at, u.first_name, u.last_name;
+    
+    -- Si l'utilisateur veut uniquement les recettes en stock
+    IF p_only_in_stock THEN
+        DELETE FROM temp_recommended_recipes WHERE is_in_stock = FALSE;
+    END IF;
+    
+    -- Compter le nombre total de résultats
+    SELECT COUNT(*) as total_count FROM temp_recommended_recipes;
+    
+    -- Retourner les résultats triés et paginés
+    CASE p_sort_by
+        WHEN 'rating' THEN
+            SELECT * FROM temp_recommended_recipes
+            ORDER BY avg_rating DESC, title ASC
+            LIMIT p_page_size OFFSET v_offset;
+        WHEN 'cost' THEN
+            SELECT * FROM temp_recommended_recipes
+            ORDER BY total_cost ASC, title ASC
+            LIMIT p_page_size OFFSET v_offset;
+        WHEN 'difficulty' THEN
+            SELECT * FROM temp_recommended_recipes
+            ORDER BY 
+                CASE difficulty
+                    WHEN 'Easy' THEN 1
+                    WHEN 'Medium' THEN 2
+                    WHEN 'Hard' THEN 3
+                    ELSE 4
+                END,
+                title ASC
+            LIMIT p_page_size OFFSET v_offset;
+        WHEN 'recent' THEN
+            SELECT * FROM temp_recommended_recipes
+            ORDER BY created_at DESC, recipe_id DESC
+            LIMIT p_page_size OFFSET v_offset;
+        ELSE
+            -- Par défaut : trier par note puis par date
+            SELECT * FROM temp_recommended_recipes
+            ORDER BY avg_rating DESC, created_at DESC
+            LIMIT p_page_size OFFSET v_offset;
+    END CASE;
+    
+    -- Nettoyer
+    DROP TEMPORARY TABLE IF EXISTS temp_recommended_recipes;
 END$$
 
 

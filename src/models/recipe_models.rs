@@ -43,7 +43,7 @@ pub struct RecipeWithIngredients {
 pub struct RecipeIngredientDetail {
     pub recipe_id: u32,
     pub ingredient_id: u32,
-    pub ingredient_name: String,
+    pub name: String,
     pub quantity: Decimal,
     pub measurement_unit: String,
     pub is_optional: bool,
@@ -134,4 +134,45 @@ fn validate_step_type(step_type: &str) -> Result<(), validator::ValidationError>
             "Invalid step type. Must be 'cooking' or 'action'",
         ))
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct RecommendedRecipe {
+    pub recipe_id: i32,
+    pub title: String,
+    pub description: Option<String>,
+    pub servings: i32,
+    pub difficulty: String,
+    pub author_user_id: i32,
+    pub is_published: bool,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub author_first_name: Option<String>,
+    pub author_last_name: Option<String>,
+    pub avg_rating: Decimal,
+    pub total_cost: Decimal,
+    pub is_in_stock: bool,
+    pub missing_ingredients_count: i32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecipeRecommendationParams {
+    #[serde(default = "default_page")]
+    pub page: i32,
+    #[serde(default = "default_page_size")]
+    pub page_size: i32,
+    #[serde(default)]
+    pub only_in_stock: bool,
+    #[serde(default = "default_sort_by")]
+    pub sort_by: String, // "rating", "cost", "difficulty", "recent"
+}
+
+fn default_page() -> i32 {
+    1
+}
+fn default_page_size() -> i32 {
+    10
+}
+fn default_sort_by() -> String {
+    "rating".to_string()
 }

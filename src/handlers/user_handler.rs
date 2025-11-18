@@ -1,4 +1,4 @@
-use crate::models::{AuthResponse, LoginRequest, RegisterRequest, User};
+use crate::models::{AuthResponse, LoginRequest, RegisterRequest, TokenClaims, User};
 use crate::repositories::UserRepository;
 use crate::utils::auth::create_jwt;
 use actix_web::{HttpResponse, web};
@@ -163,6 +163,36 @@ pub async fn register(pool: web::Data<MySqlPool>, req: web::Json<RegisterRequest
                     "error": "Failed to create user"
                 }))
             }
+        }
+    }
+}
+
+pub async fn get_current_user(
+    pool: web::Data<MySqlPool>,
+    claims: web::ReqData<TokenClaims>,
+) -> HttpResponse {
+    let user_repo = UserRepository::new(pool.get_ref().clone());
+
+    let user_id = match claims.sub.parse::<u32>() {
+        Ok(id) => id,
+        Err(_) => {
+            log::error!("Invalid user_id in claims");
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": "Invalid user identifier"
+            }));
+        }
+    };
+
+    match user_repo.find_by_id(user_id).await {
+        Ok(Some(user)) => HttpResponse::Ok().json(user),
+        Ok(None) => HttpResponse::NotFound().json(serde_json::json!({
+            "error": "User not found or inactive"
+        })),
+        Err(e) => {
+            log::error!("Failed to retrieve current user: {:?}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": "Failed to retrieve user information"
+            }))
         }
     }
 }

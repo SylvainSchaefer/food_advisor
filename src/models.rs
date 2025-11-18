@@ -5,6 +5,7 @@ pub mod ingredient_categories_models;
 pub mod ingredient_models;
 pub mod pagination_models;
 pub mod recipe_models;
+pub mod stats_models;
 pub mod user_models;
 pub mod user_preferences_models;
 
@@ -15,5 +16,6 @@ pub use ingredient_categories_models::*;
 pub use ingredient_models::*;
 pub use pagination_models::*;
 pub use recipe_models::*;
+pub use stats_models::*;
 pub use user_models::*;
 pub use user_preferences_models::*;

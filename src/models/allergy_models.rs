@@ -1,26 +1,9 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "VARCHAR", rename_all = "PascalCase")]
-pub enum Severity {
-    Mild,
-    Moderate,
-    Severe,
-    #[sqlx(rename = "Life-threatening")]
-    LifeThreatening,
-}
+use crate::models::Ingredient;
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct UserAllergyDetail {
-    pub allergy_id: u32,
-    pub allergy_name: String,
-    pub severity: Severity,
-    pub allergy_added_date: NaiveDateTime,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Allergy {
     pub allergy_id: u32,
     pub name: String,
@@ -29,17 +12,42 @@ pub struct Allergy {
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AllergyWithIngredients {
+    #[serde(flatten)]
+    pub allergy: Allergy,
+    pub ingredients: Vec<Ingredient>,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct UserAllergy {
     pub user_id: u32,
     pub allergy_id: u32,
-    pub severity: Severity,
+    pub name: String,
+    pub description: Option<String>,
+    pub severity: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct IngredientAllergy {
+#[derive(Debug, Deserialize)]
+pub struct CreateAllergyRequest {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateAllergyRequest {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddIngredientToAllergyRequest {
     pub ingredient_id: u32,
-    pub allergy_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddUserAllergyRequest {
+    pub severity: String, // "Mild", "Moderate", "Severe", "Life-threatening"
 }
